@@ -1,32 +1,54 @@
 import { useEffect, useState } from "react";
+import AvailabilityForm from "../components/AvailabilityForm";
+import AvailabilityList from "../components/AvailabilityList";
+import FixedEventForm from "../components/FixedEventForm";
+import FixedEventList from "../components/FixedEventList";
+import SchedulePreview from "../components/SchedulePreview";
 import TaskForm from "../components/TaskForm";
 import TaskList from "../components/TaskList";
+import { createAvailabilityRule, deleteAvailabilityRule, getAvailabilityRules } from "../services/availability";
 import { signOut } from "../services/auth";
+import { createFixedEvent, deleteFixedEvent, getFixedEvents } from "../services/fixedEvents";
+import { generateWeeklySchedule } from "../services/scheduler";
 import { createTask, deleteTask, getTasks, updateTask } from "../services/tasks";
 
 function DashboardPage({ session }) {
   const [tasks, setTasks] = useState([]);
+  const [availabilityRules, setAvailabilityRules] = useState([]);
+  const [fixedEvents, setFixedEvents] = useState([]);
+  const [schedulePlan, setSchedulePlan] = useState(null);
   const [currentTask, setCurrentTask] = useState(null);
-  const [loadingTasks, setLoadingTasks] = useState(true);
+  const [loadingPage, setLoadingPage] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingAvailability, setIsSavingAvailability] = useState(false);
+  const [isSavingFixedEvent, setIsSavingFixedEvent] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [deletingAvailabilityId, setDeletingAvailabilityId] = useState(null);
+  const [deletingFixedEventId, setDeletingFixedEventId] = useState(null);
   const [pageError, setPageError] = useState("");
 
   useEffect(() => {
-    loadTasks();
+    loadDashboardData();
   }, []);
 
-  async function loadTasks() {
-    setLoadingTasks(true);
+  async function loadDashboardData() {
+    setLoadingPage(true);
     setPageError("");
 
     try {
-      const taskRows = await getTasks();
+      const [taskRows, ruleRows, fixedEventRows] = await Promise.all([
+        getTasks(),
+        getAvailabilityRules(),
+        getFixedEvents(),
+      ]);
+
       setTasks(taskRows);
+      setAvailabilityRules(ruleRows);
+      setFixedEvents(fixedEventRows);
     } catch (error) {
-      setPageError(error.message || "Could not load tasks.");
+      setPageError(error.message || "Could not load dashboard data.");
     } finally {
-      setLoadingTasks(false);
+      setLoadingPage(false);
     }
   }
 
@@ -43,6 +65,8 @@ function DashboardPage({ session }) {
         const newTask = await createTask(taskValues);
         setTasks((prev) => [newTask, ...prev]);
       }
+
+      setSchedulePlan(null);
     } catch (error) {
       setPageError(error.message || "Could not save task.");
     } finally {
@@ -61,11 +85,99 @@ function DashboardPage({ session }) {
       if (currentTask && currentTask.id === taskId) {
         setCurrentTask(null);
       }
+
+      setSchedulePlan(null);
     } catch (error) {
       setPageError(error.message || "Could not delete task.");
     } finally {
       setDeletingId(null);
     }
+  }
+
+  async function handleAddAvailability(values) {
+    setIsSavingAvailability(true);
+    setPageError("");
+
+    try {
+      const newRule = await createAvailabilityRule(values);
+      setAvailabilityRules((prev) =>
+        [...prev, newRule].sort((a, b) => {
+          if (a.day_of_week !== b.day_of_week) {
+            return a.day_of_week - b.day_of_week;
+          }
+
+          return a.start_time.localeCompare(b.start_time);
+        })
+      );
+      setSchedulePlan(null);
+    } catch (error) {
+      setPageError(error.message || "Could not save availability.");
+    } finally {
+      setIsSavingAvailability(false);
+    }
+  }
+
+  async function handleDeleteAvailability(ruleId) {
+    setDeletingAvailabilityId(ruleId);
+    setPageError("");
+
+    try {
+      await deleteAvailabilityRule(ruleId);
+      setAvailabilityRules((prev) => prev.filter((rule) => rule.id !== ruleId));
+      setSchedulePlan(null);
+    } catch (error) {
+      setPageError(error.message || "Could not delete availability.");
+    } finally {
+      setDeletingAvailabilityId(null);
+    }
+  }
+
+  async function handleAddFixedEvent(values) {
+    setIsSavingFixedEvent(true);
+    setPageError("");
+
+    try {
+      const newEvent = await createFixedEvent(values);
+      setFixedEvents((prev) =>
+        [...prev, newEvent].sort((a, b) => {
+          if (a.day_of_week !== b.day_of_week) {
+            return a.day_of_week - b.day_of_week;
+          }
+
+          return a.start_time.localeCompare(b.start_time);
+        })
+      );
+      setSchedulePlan(null);
+    } catch (error) {
+      setPageError(error.message || "Could not save fixed block.");
+    } finally {
+      setIsSavingFixedEvent(false);
+    }
+  }
+
+  async function handleDeleteFixedEvent(eventId) {
+    setDeletingFixedEventId(eventId);
+    setPageError("");
+
+    try {
+      await deleteFixedEvent(eventId);
+      setFixedEvents((prev) => prev.filter((event) => event.id !== eventId));
+      setSchedulePlan(null);
+    } catch (error) {
+      setPageError(error.message || "Could not delete fixed block.");
+    } finally {
+      setDeletingFixedEventId(null);
+    }
+  }
+
+  function handleGenerateSchedule() {
+    setSchedulePlan(
+      generateWeeklySchedule({
+        tasks,
+        availabilityRules,
+        fixedEvents,
+      })
+    );
   }
 
   async function handleSignOut() {
@@ -103,8 +215,8 @@ function DashboardPage({ session }) {
           </div>
 
           <div>
-            {loadingTasks ? (
-              <div className="empty-state">Loading tasks...</div>
+            {loadingPage ? (
+              <div className="empty-state">Loading dashboard...</div>
             ) : (
               <TaskList
                 tasks={tasks}
@@ -114,6 +226,47 @@ function DashboardPage({ session }) {
               />
             )}
           </div>
+        </div>
+
+        <div className="two-column-grid">
+          <div className="card">
+            <h2>Weekly Availability</h2>
+            <p className="helper-text">Add the times when you are generally free to work.</p>
+            <AvailabilityForm onSave={handleAddAvailability} isSaving={isSavingAvailability} />
+            <AvailabilityList
+              rules={availabilityRules}
+              onDelete={handleDeleteAvailability}
+              deletingId={deletingAvailabilityId}
+            />
+          </div>
+
+          <div className="card">
+            <h2>Recurring Fixed Blocks</h2>
+            <p className="helper-text">Use this for class, work, or other repeating commitments.</p>
+            <FixedEventForm onSave={handleAddFixedEvent} isSaving={isSavingFixedEvent} />
+            <FixedEventList
+              events={fixedEvents}
+              onDelete={handleDeleteFixedEvent}
+              deletingId={deletingFixedEventId}
+            />
+          </div>
+        </div>
+
+        <div className="section-stack">
+          <div className="dashboard-header">
+            <div>
+              <h2>Week 5 Schedule Preview</h2>
+              <p className="helper-text">
+                This generates a basic plan for the next 7 days using availability, fixed blocks,
+                deadlines, priority, and duration.
+              </p>
+            </div>
+            <button className="button-primary" type="button" onClick={handleGenerateSchedule}>
+              Generate schedule
+            </button>
+          </div>
+
+          <SchedulePreview plan={schedulePlan} />
         </div>
       </div>
     </div>
