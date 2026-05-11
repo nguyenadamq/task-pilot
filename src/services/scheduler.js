@@ -2,73 +2,167 @@ const DAY_LABELS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Fri
 const MAX_WORK_MINUTES_PER_DAY = 360;
 const MIN_SPLIT_MINUTES = 30;
 
+const STRATEGIES = [
+  {
+    key: "deadline-first",
+    label: "Deadline first",
+    sortTasks(tasks) {
+      return [...tasks].sort((a, b) => {
+        const deadlineDiff = getDeadlineValue(a) - getDeadlineValue(b);
+
+        if (deadlineDiff !== 0) {
+          return deadlineDiff;
+        }
+
+        const priorityDiff = getPriorityWeight(a.priority) - getPriorityWeight(b.priority);
+
+        if (priorityDiff !== 0) {
+          return priorityDiff;
+        }
+
+        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      });
+    },
+  },
+  {
+    key: "priority-first",
+    label: "Priority first",
+    sortTasks(tasks) {
+      return [...tasks].sort((a, b) => {
+        const priorityDiff = getPriorityWeight(a.priority) - getPriorityWeight(b.priority);
+
+        if (priorityDiff !== 0) {
+          return priorityDiff;
+        }
+
+        const deadlineDiff = getDeadlineValue(a) - getDeadlineValue(b);
+
+        if (deadlineDiff !== 0) {
+          return deadlineDiff;
+        }
+
+        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      });
+    },
+  },
+  {
+    key: "larger-tasks-first",
+    label: "Larger tasks first",
+    sortTasks(tasks) {
+      return [...tasks].sort((a, b) => {
+        const durationDiff = b.duration_minutes - a.duration_minutes;
+
+        if (durationDiff !== 0) {
+          return durationDiff;
+        }
+
+        const deadlineDiff = getDeadlineValue(a) - getDeadlineValue(b);
+
+        if (deadlineDiff !== 0) {
+          return deadlineDiff;
+        }
+
+        return getPriorityWeight(a.priority) - getPriorityWeight(b.priority);
+      });
+    },
+  },
+  {
+    key: "balanced",
+    label: "Balanced mix",
+    sortTasks(tasks) {
+      return [...tasks].sort((a, b) => {
+        const scoreA = getTaskUrgencyScore(a);
+        const scoreB = getTaskUrgencyScore(b);
+
+        if (scoreA !== scoreB) {
+          return scoreB - scoreA;
+        }
+
+        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      });
+    },
+  },
+];
+
 export function generateWeeklySchedule({ tasks, availabilityRules, fixedEvents }) {
   const startDate = startOfToday();
+  const candidates = STRATEGIES.map((strategy) =>
+    buildCandidateSchedule({
+      strategy,
+      startDate,
+      tasks,
+      availabilityRules,
+      fixedEvents,
+    })
+  );
+
+  const bestCandidate = [...candidates].sort((a, b) => b.score - a.score)[0];
+
+  return {
+    days: bestCandidate.days,
+    unscheduledTasks: bestCandidate.unscheduledTasks,
+    summary: {
+      strategyKey: bestCandidate.strategy.key,
+      strategyLabel: bestCandidate.strategy.label,
+      score: bestCandidate.score,
+      candidateCount: candidates.length,
+    },
+    candidates: [...candidates]
+      .sort((a, b) => b.score - a.score)
+      .map((candidate) => ({
+        strategyKey: candidate.strategy.key,
+        strategyLabel: candidate.strategy.label,
+        score: candidate.score,
+        unscheduledCount: candidate.unscheduledTasks.length,
+      })),
+  };
+}
+
+function buildCandidateSchedule({ strategy, startDate, tasks, availabilityRules, fixedEvents }) {
   const days = buildDays(startDate, 7, availabilityRules, fixedEvents, tasks);
-  const flexibleTasks = sortTasksForScheduling(tasks);
+  const flexibleTasks = strategy.sortTasks(getFlexibleTasks(tasks));
   const scheduledItems = [];
   const unscheduledTasks = [];
   const minutesByDay = {};
+  const taskBlocksById = {};
 
   for (const task of flexibleTasks) {
     let remainingMinutes = task.duration_minutes;
-    let scheduled = false;
+    const placedBlocks = [];
 
     if (task.splittable) {
-      for (const day of days) {
-        for (const slot of day.slots) {
-          if (remainingMinutes <= 0) {
-            break;
-          }
-
-          if (!canUseSlotForTask(slot, task.deadline)) {
-            continue;
-          }
-
-          const availableBeforeDeadline = getAvailableMinutesBeforeDeadline(slot, task.deadline);
-          const availableMinutes = Math.min(
-            getMinutesBetween(slot.start, slot.end),
-            availableBeforeDeadline,
-            getRemainingDailyCapacity(minutesByDay, day.dateKey)
-          );
-
-          if (availableMinutes < MIN_SPLIT_MINUTES) {
-            continue;
-          }
-
-          const blockMinutes = Math.min(remainingMinutes, availableMinutes);
-
-          scheduledItems.push({
-            taskId: task.id,
-            title: task.title,
-            start: slot.start.toISOString(),
-            end: addMinutes(slot.start, blockMinutes).toISOString(),
-            durationMinutes: blockMinutes,
-          });
-
-          slot.start = addMinutes(slot.start, blockMinutes);
-          minutesByDay[day.dateKey] = (minutesByDay[day.dateKey] || 0) + blockMinutes;
-          remainingMinutes -= blockMinutes;
-          scheduled = true;
-        }
-      }
+      remainingMinutes = placeSplittableTask({
+        task,
+        days,
+        minutesByDay,
+        scheduledItems,
+        placedBlocks,
+        remainingMinutes,
+      });
     } else {
       const singleBlock = findSingleBlock(days, task, minutesByDay);
 
       if (singleBlock) {
+        const end = addMinutes(singleBlock.start, task.duration_minutes);
+
         scheduledItems.push({
           taskId: task.id,
           title: task.title,
           start: singleBlock.start.toISOString(),
-          end: addMinutes(singleBlock.start, task.duration_minutes).toISOString(),
+          end: end.toISOString(),
           durationMinutes: task.duration_minutes,
         });
 
-        singleBlock.slot.start = addMinutes(singleBlock.start, task.duration_minutes);
+        placedBlocks.push({
+          start: singleBlock.start,
+          end,
+          durationMinutes: task.duration_minutes,
+        });
+
+        singleBlock.slot.start = end;
         minutesByDay[singleBlock.dateKey] =
           (minutesByDay[singleBlock.dateKey] || 0) + task.duration_minutes;
         remainingMinutes = 0;
-        scheduled = true;
       }
     }
 
@@ -77,24 +171,90 @@ export function generateWeeklySchedule({ tasks, availabilityRules, fixedEvents }
         id: task.id,
         title: task.title,
         remainingMinutes,
+        priority: task.priority,
+        duration_minutes: task.duration_minutes,
       });
-    } else if (!scheduled) {
-      unscheduledTasks.push({
-        id: task.id,
+    }
+
+    taskBlocksById[task.id] = placedBlocks;
+  }
+
+  const mappedDays = days.map((day) => ({
+    dateKey: day.dateKey,
+    label: day.label,
+    items: scheduledItems
+      .filter((item) => item.start.slice(0, 10) === day.dateKey)
+      .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()),
+  }));
+
+  const score = scoreSchedule({
+    tasks: flexibleTasks,
+    unscheduledTasks,
+    taskBlocksById,
+    startDate,
+  });
+
+  return {
+    strategy,
+    days: mappedDays,
+    unscheduledTasks,
+    score,
+  };
+}
+
+function placeSplittableTask({
+  task,
+  days,
+  minutesByDay,
+  scheduledItems,
+  placedBlocks,
+  remainingMinutes,
+}) {
+  for (const day of days) {
+    for (const slot of day.slots) {
+      if (remainingMinutes <= 0) {
+        break;
+      }
+
+      if (!canUseSlotForTask(slot, task.deadline)) {
+        continue;
+      }
+
+      const availableBeforeDeadline = getAvailableMinutesBeforeDeadline(slot, task.deadline);
+      const availableMinutes = Math.min(
+        getMinutesBetween(slot.start, slot.end),
+        availableBeforeDeadline,
+        getRemainingDailyCapacity(minutesByDay, day.dateKey)
+      );
+
+      if (availableMinutes < MIN_SPLIT_MINUTES) {
+        continue;
+      }
+
+      const blockMinutes = chooseSplitBlockMinutes(task, remainingMinutes, availableMinutes);
+      const end = addMinutes(slot.start, blockMinutes);
+
+      scheduledItems.push({
+        taskId: task.id,
         title: task.title,
-        remainingMinutes: task.duration_minutes,
+        start: slot.start.toISOString(),
+        end: end.toISOString(),
+        durationMinutes: blockMinutes,
       });
+
+      placedBlocks.push({
+        start: new Date(slot.start),
+        end,
+        durationMinutes: blockMinutes,
+      });
+
+      slot.start = end;
+      minutesByDay[day.dateKey] = (minutesByDay[day.dateKey] || 0) + blockMinutes;
+      remainingMinutes -= blockMinutes;
     }
   }
 
-  return {
-    days: days.map((day) => ({
-      dateKey: day.dateKey,
-      label: day.label,
-      items: scheduledItems.filter((item) => item.start.slice(0, 10) === day.dateKey),
-    })),
-    unscheduledTasks,
-  };
+  return remainingMinutes;
 }
 
 function buildDays(startDate, numberOfDays, availabilityRules, fixedEvents, tasks) {
@@ -119,10 +279,10 @@ function buildDays(startDate, numberOfDays, availabilityRules, fixedEvents, task
       slots = subtractBlockFromSlots(slots, blockStart, blockEnd);
     }
 
-      const fixedTasksForDay = tasks.filter((task) => {
-        if (!task.fixed_start || !task.fixed_end) {
-          return false;
-        }
+    const fixedTasksForDay = tasks.filter((task) => {
+      if (!task.fixed_start || !task.fixed_end) {
+        return false;
+      }
 
       return toDateKey(new Date(task.fixed_start)) === dateKey;
     });
@@ -141,27 +301,8 @@ function buildDays(startDate, numberOfDays, availabilityRules, fixedEvents, task
   return days;
 }
 
-function sortTasksForScheduling(tasks) {
-  return [...tasks]
-    .filter((task) => task.status !== "done" && !(task.fixed_start && task.fixed_end))
-    .sort((a, b) => {
-      const deadlineA = a.deadline ? new Date(a.deadline).getTime() : Number.MAX_SAFE_INTEGER;
-      const deadlineB = b.deadline ? new Date(b.deadline).getTime() : Number.MAX_SAFE_INTEGER;
-
-      if (deadlineA !== deadlineB) {
-        return deadlineA - deadlineB;
-      }
-
-      const priorityOrder = { high: 0, medium: 1, low: 2 };
-      const priorityA = priorityOrder[a.priority] ?? 1;
-      const priorityB = priorityOrder[b.priority] ?? 1;
-
-      if (priorityA !== priorityB) {
-        return priorityA - priorityB;
-      }
-
-      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-    });
+function getFlexibleTasks(tasks) {
+  return tasks.filter((task) => task.status !== "done" && !(task.fixed_start && task.fixed_end));
 }
 
 function findSingleBlock(days, task, minutesByDay) {
@@ -171,7 +312,10 @@ function findSingleBlock(days, task, minutesByDay) {
         continue;
       }
 
-      const slotMinutes = getMinutesBetween(slot.start, slot.end);
+      const slotMinutes = Math.min(
+        getMinutesBetween(slot.start, slot.end),
+        getAvailableMinutesBeforeDeadline(slot, task.deadline)
+      );
       const remainingCapacity = getRemainingDailyCapacity(minutesByDay, day.dateKey);
 
       if (slotMinutes >= task.duration_minutes && remainingCapacity >= task.duration_minutes) {
@@ -185,6 +329,86 @@ function findSingleBlock(days, task, minutesByDay) {
   }
 
   return null;
+}
+
+function scoreSchedule({ tasks, unscheduledTasks, taskBlocksById, startDate }) {
+  let score = 0;
+
+  for (const task of tasks) {
+    const taskBlocks = taskBlocksById[task.id] || [];
+    const taskMinutesScheduled = taskBlocks.reduce((total, block) => total + block.durationMinutes, 0);
+    const taskPriorityWeight = getPriorityScore(task.priority);
+    const fullyScheduled = taskMinutesScheduled >= task.duration_minutes;
+
+    if (fullyScheduled) {
+      score += 60 + taskPriorityWeight * 12;
+    } else if (taskMinutesScheduled > 0) {
+      score += 20 + taskPriorityWeight * 5;
+    }
+
+    if (taskBlocks.length > 0) {
+      const firstBlock = taskBlocks[0];
+      const daysFromStart = getDaysBetween(startDate, firstBlock.start);
+      score += Math.max(0, 12 - daysFromStart) * taskPriorityWeight;
+
+      if (task.deadline) {
+        const deadline = new Date(task.deadline);
+
+        if (new Date(firstBlock.end) <= deadline) {
+          score += 20;
+        } else {
+          score -= 40;
+        }
+      }
+
+      if (task.duration_minutes >= 180 && daysFromStart <= 2) {
+        score += 15;
+      }
+
+      if (task.splittable && task.duration_minutes >= 120) {
+        if (taskBlocks.length >= 2 && taskBlocks.length <= 4) {
+          score += 12;
+        }
+
+        if (taskBlocks.some((block) => block.durationMinutes < MIN_SPLIT_MINUTES)) {
+          score -= 10;
+        }
+      }
+    }
+  }
+
+  for (const task of unscheduledTasks) {
+    const priorityPenalty = getPriorityScore(task.priority) * 20;
+    const durationPenalty = Math.ceil(task.remainingMinutes / 30) * 2;
+    score -= priorityPenalty + durationPenalty;
+  }
+
+  score -= Math.max(0, unscheduledTasks.length - 1) * 5;
+
+  return score;
+}
+
+function chooseSplitBlockMinutes(task, remainingMinutes, availableMinutes) {
+  const preferredChunk = getPreferredChunkMinutes(task.duration_minutes);
+  let blockMinutes = Math.min(remainingMinutes, availableMinutes, preferredChunk);
+
+  if (remainingMinutes - blockMinutes > 0 && remainingMinutes - blockMinutes < MIN_SPLIT_MINUTES) {
+    blockMinutes = Math.min(remainingMinutes, availableMinutes);
+  }
+
+  return blockMinutes;
+}
+
+function getPreferredChunkMinutes(durationMinutes) {
+  if (durationMinutes >= 180) {
+    return 90;
+  }
+
+  if (durationMinutes >= 120) {
+    return 60;
+  }
+
+  return durationMinutes;
 }
 
 function subtractBlockFromSlots(slots, blockStart, blockEnd) {
@@ -267,4 +491,38 @@ function startOfToday() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   return today;
+}
+
+function getPriorityWeight(priority) {
+  const weights = { high: 0, medium: 1, low: 2 };
+  return weights[priority] ?? 1;
+}
+
+function getPriorityScore(priority) {
+  const scores = { high: 3, medium: 2, low: 1 };
+  return scores[priority] ?? 1;
+}
+
+function getDeadlineValue(task) {
+  return task.deadline ? new Date(task.deadline).getTime() : Number.MAX_SAFE_INTEGER;
+}
+
+function getTaskUrgencyScore(task) {
+  const priorityPart = getPriorityScore(task.priority) * 30;
+  const durationPart = Math.min(task.duration_minutes, 240) / 15;
+  const deadlinePart = task.deadline ? Math.max(0, 14 - getDaysUntilDeadline(task.deadline)) * 4 : 0;
+
+  return priorityPart + deadlinePart + durationPart;
+}
+
+function getDaysBetween(start, end) {
+  const startCopy = new Date(start);
+  const endCopy = new Date(end);
+  startCopy.setHours(0, 0, 0, 0);
+  endCopy.setHours(0, 0, 0, 0);
+  return Math.floor((endCopy.getTime() - startCopy.getTime()) / 86400000);
+}
+
+function getDaysUntilDeadline(deadline) {
+  return getDaysBetween(startOfToday(), new Date(deadline));
 }

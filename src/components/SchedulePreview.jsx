@@ -5,6 +5,25 @@ function SchedulePreview({ plan }) {
 
   return (
     <div className="schedule-preview">
+      <div className="card">
+        <h3>Schedule Summary</h3>
+        <p className="helper-text">
+          Chosen strategy: {plan.summary.strategyLabel} | Score: {plan.summary.score} | Candidates
+          tried: {plan.summary.candidateCount}
+        </p>
+
+        <div className="simple-list">
+          {plan.candidates.map((candidate) => (
+            <div className="list-row" key={candidate.strategyKey}>
+              <span>{candidate.strategyLabel}</span>
+              <span className="helper-text">
+                Score {candidate.score} | Unscheduled {candidate.unscheduledCount}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="schedule-grid">
         {plan.days.map((day) => (
           <div className="schedule-day" key={day.dateKey}>

@@ -255,10 +255,10 @@ function DashboardPage({ session }) {
         <div className="section-stack">
           <div className="dashboard-header">
             <div>
-              <h2>Week 5 Schedule Preview</h2>
+              <h2>Week 6 Schedule Preview</h2>
               <p className="helper-text">
-                This generates a basic plan for the next 7 days using availability, fixed blocks,
-                deadlines, priority, and duration.
+                This tries a few simple scheduling strategies, scores them, and keeps the strongest
+                7-day plan.
               </p>
             </div>
             <button className="button-primary" type="button" onClick={handleGenerateSchedule}>
