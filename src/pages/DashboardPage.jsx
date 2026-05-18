@@ -9,7 +9,7 @@ import TaskList from "../components/TaskList";
 import { createAvailabilityRule, deleteAvailabilityRule, getAvailabilityRules } from "../services/availability";
 import { signOut } from "../services/auth";
 import { createFixedEvent, deleteFixedEvent, getFixedEvents } from "../services/fixedEvents";
-import { generateWeeklySchedule } from "../services/scheduler";
+import { generateWeeklySchedule, repairWeeklySchedule } from "../services/scheduler";
 import { createTask, deleteTask, getTasks, updateTask } from "../services/tasks";
 
 function DashboardPage({ session }) {
@@ -17,6 +17,7 @@ function DashboardPage({ session }) {
   const [availabilityRules, setAvailabilityRules] = useState([]);
   const [fixedEvents, setFixedEvents] = useState([]);
   const [schedulePlan, setSchedulePlan] = useState(null);
+  const [repairedPlan, setRepairedPlan] = useState(null);
   const [currentTask, setCurrentTask] = useState(null);
   const [loadingPage, setLoadingPage] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -67,6 +68,7 @@ function DashboardPage({ session }) {
       }
 
       setSchedulePlan(null);
+      setRepairedPlan(null);
     } catch (error) {
       setPageError(error.message || "Could not save task.");
     } finally {
@@ -87,6 +89,7 @@ function DashboardPage({ session }) {
       }
 
       setSchedulePlan(null);
+      setRepairedPlan(null);
     } catch (error) {
       setPageError(error.message || "Could not delete task.");
     } finally {
@@ -110,6 +113,7 @@ function DashboardPage({ session }) {
         })
       );
       setSchedulePlan(null);
+      setRepairedPlan(null);
     } catch (error) {
       setPageError(error.message || "Could not save availability.");
     } finally {
@@ -125,6 +129,7 @@ function DashboardPage({ session }) {
       await deleteAvailabilityRule(ruleId);
       setAvailabilityRules((prev) => prev.filter((rule) => rule.id !== ruleId));
       setSchedulePlan(null);
+      setRepairedPlan(null);
     } catch (error) {
       setPageError(error.message || "Could not delete availability.");
     } finally {
@@ -148,6 +153,7 @@ function DashboardPage({ session }) {
         })
       );
       setSchedulePlan(null);
+      setRepairedPlan(null);
     } catch (error) {
       setPageError(error.message || "Could not save fixed block.");
     } finally {
@@ -163,6 +169,7 @@ function DashboardPage({ session }) {
       await deleteFixedEvent(eventId);
       setFixedEvents((prev) => prev.filter((event) => event.id !== eventId));
       setSchedulePlan(null);
+      setRepairedPlan(null);
     } catch (error) {
       setPageError(error.message || "Could not delete fixed block.");
     } finally {
@@ -171,13 +178,29 @@ function DashboardPage({ session }) {
   }
 
   function handleGenerateSchedule() {
-    setSchedulePlan(
-      generateWeeklySchedule({
-        tasks,
-        availabilityRules,
-        fixedEvents,
-      })
-    );
+    const nextPlan = generateWeeklySchedule({
+      tasks,
+      availabilityRules,
+      fixedEvents,
+    });
+
+    setSchedulePlan(nextPlan);
+    setRepairedPlan(null);
+  }
+
+  function handleRepairSchedule() {
+    if (!schedulePlan) {
+      return;
+    }
+
+    const nextRepairedPlan = repairWeeklySchedule({
+      originalPlan: schedulePlan,
+      tasks,
+      availabilityRules,
+      fixedEvents,
+    });
+
+    setRepairedPlan(nextRepairedPlan);
   }
 
   async function handleSignOut() {
@@ -255,18 +278,30 @@ function DashboardPage({ session }) {
         <div className="section-stack">
           <div className="dashboard-header">
             <div>
-              <h2>Week 6 Schedule Preview</h2>
+              <h2>Week 7 Schedule Preview</h2>
               <p className="helper-text">
-                This tries a few simple scheduling strategies, scores them, and keeps the strongest
-                7-day plan.
+                This keeps the best generated schedule, then tries a basic repair pass when work is
+                overdue, incomplete, or no longer fits well.
               </p>
             </div>
-            <button className="button-primary" type="button" onClick={handleGenerateSchedule}>
-              Generate schedule
-            </button>
+            <div className="button-row">
+              <button className="button-primary" type="button" onClick={handleGenerateSchedule}>
+                Generate schedule
+              </button>
+              <button
+                className="button-secondary"
+                type="button"
+                onClick={handleRepairSchedule}
+                disabled={!schedulePlan}
+              >
+                Repair schedule
+              </button>
+            </div>
           </div>
 
-          <SchedulePreview plan={schedulePlan} />
+          {schedulePlan ? <SchedulePreview plan={schedulePlan} title="Original Schedule" /> : null}
+          {repairedPlan ? <SchedulePreview plan={repairedPlan} title="Repaired Schedule" /> : null}
+          {!schedulePlan ? <SchedulePreview plan={schedulePlan} /> : null}
         </div>
       </div>
     </div>

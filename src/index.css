@@ -224,6 +224,10 @@ a:hover {
   gap: 20px;
 }
 
+.schedule-preview > h3 {
+  margin: 0;
+}
+
 .schedule-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

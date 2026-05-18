@@ -85,7 +85,76 @@ const STRATEGIES = [
 ];
 
 export function generateWeeklySchedule({ tasks, availabilityRules, fixedEvents }) {
-  const startDate = startOfToday();
+  return buildBestSchedule({
+    tasks,
+    availabilityRules,
+    fixedEvents,
+    lockedItems: [],
+    startDate: startOfToday(),
+    mode: "original",
+  });
+}
+
+export function repairWeeklySchedule({ originalPlan, tasks, availabilityRules, fixedEvents }) {
+  if (!originalPlan) {
+    return generateWeeklySchedule({ tasks, availabilityRules, fixedEvents });
+  }
+
+  const now = new Date();
+  const tasksById = Object.fromEntries(tasks.map((task) => [task.id, task]));
+  const originalScheduledItems = originalPlan.scheduledItems || [];
+  const repairTaskIds = getRepairTaskIds(tasks, originalPlan, now);
+
+  const lockedItems = originalScheduledItems.filter((item) => {
+    const task = tasksById[item.taskId];
+
+    if (!task) {
+      return false;
+    }
+
+    if (repairTaskIds.has(item.taskId)) {
+      return false;
+    }
+
+    if (new Date(item.start) < now) {
+      return false;
+    }
+
+    return task.status !== "done";
+  });
+
+  const repairTasks = tasks
+    .filter((task) => repairTaskIds.has(task.id))
+    .map((task) => ({
+      ...task,
+      duration_minutes: getRemainingMinutesForRepair(task, originalPlan, now),
+    }))
+    .filter((task) => task.status !== "done" && task.duration_minutes > 0);
+
+  const repairedPlan = buildBestSchedule({
+    tasks: repairTasks,
+    availabilityRules,
+    fixedEvents,
+    lockedItems,
+    startDate: startOfToday(),
+    mode: "repair",
+  });
+
+  const comparison = compareSchedules(originalScheduledItems, repairedPlan.scheduledItems, now);
+  const repairReasons = getRepairReasonSummary(tasks, originalPlan, now);
+
+  return {
+    ...repairedPlan,
+    repairInfo: {
+      lockedCount: lockedItems.length,
+      repairTaskCount: repairTasks.length,
+      repairReasons,
+    },
+    comparison,
+  };
+}
+
+function buildBestSchedule({ tasks, availabilityRules, fixedEvents, lockedItems, startDate, mode }) {
   const candidates = STRATEGIES.map((strategy) =>
     buildCandidateSchedule({
       strategy,
@@ -93,6 +162,7 @@ export function generateWeeklySchedule({ tasks, availabilityRules, fixedEvents }
       tasks,
       availabilityRules,
       fixedEvents,
+      lockedItems,
     })
   );
 
@@ -100,12 +170,14 @@ export function generateWeeklySchedule({ tasks, availabilityRules, fixedEvents }
 
   return {
     days: bestCandidate.days,
+    scheduledItems: bestCandidate.scheduledItems,
     unscheduledTasks: bestCandidate.unscheduledTasks,
     summary: {
       strategyKey: bestCandidate.strategy.key,
       strategyLabel: bestCandidate.strategy.label,
       score: bestCandidate.score,
       candidateCount: candidates.length,
+      mode,
     },
     candidates: [...candidates]
       .sort((a, b) => b.score - a.score)
@@ -118,13 +190,22 @@ export function generateWeeklySchedule({ tasks, availabilityRules, fixedEvents }
   };
 }
 
-function buildCandidateSchedule({ strategy, startDate, tasks, availabilityRules, fixedEvents }) {
-  const days = buildDays(startDate, 7, availabilityRules, fixedEvents, tasks);
+function buildCandidateSchedule({
+  strategy,
+  startDate,
+  tasks,
+  availabilityRules,
+  fixedEvents,
+  lockedItems,
+}) {
+  const days = buildDays(startDate, 7, availabilityRules, fixedEvents, tasks, lockedItems);
   const flexibleTasks = strategy.sortTasks(getFlexibleTasks(tasks));
   const scheduledItems = [];
   const unscheduledTasks = [];
   const minutesByDay = {};
   const taskBlocksById = {};
+
+  applyLockedItems(scheduledItems, taskBlocksById, minutesByDay, lockedItems);
 
   for (const task of flexibleTasks) {
     let remainingMinutes = task.duration_minutes;
@@ -176,7 +257,7 @@ function buildCandidateSchedule({ strategy, startDate, tasks, availabilityRules,
       });
     }
 
-    taskBlocksById[task.id] = placedBlocks;
+    taskBlocksById[task.id] = [...(taskBlocksById[task.id] || []), ...placedBlocks];
   }
 
   const mappedDays = days.map((day) => ({
@@ -197,9 +278,31 @@ function buildCandidateSchedule({ strategy, startDate, tasks, availabilityRules,
   return {
     strategy,
     days: mappedDays,
+    scheduledItems: [...scheduledItems].sort(
+      (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()
+    ),
     unscheduledTasks,
     score,
   };
+}
+
+function applyLockedItems(scheduledItems, taskBlocksById, minutesByDay, lockedItems) {
+  for (const item of lockedItems) {
+    scheduledItems.push(item);
+
+    if (!taskBlocksById[item.taskId]) {
+      taskBlocksById[item.taskId] = [];
+    }
+
+    taskBlocksById[item.taskId].push({
+      start: new Date(item.start),
+      end: new Date(item.end),
+      durationMinutes: item.durationMinutes,
+    });
+
+    const dateKey = item.start.slice(0, 10);
+    minutesByDay[dateKey] = (minutesByDay[dateKey] || 0) + item.durationMinutes;
+  }
 }
 
 function placeSplittableTask({
@@ -257,7 +360,7 @@ function placeSplittableTask({
   return remainingMinutes;
 }
 
-function buildDays(startDate, numberOfDays, availabilityRules, fixedEvents, tasks) {
+function buildDays(startDate, numberOfDays, availabilityRules, fixedEvents, tasks, lockedItems = []) {
   const days = [];
 
   for (let index = 0; index < numberOfDays; index += 1) {
@@ -293,6 +396,12 @@ function buildDays(startDate, numberOfDays, availabilityRules, fixedEvents, task
         new Date(fixedTask.fixed_start),
         new Date(fixedTask.fixed_end)
       );
+    }
+
+    const lockedItemsForDay = lockedItems.filter((item) => item.start.slice(0, 10) === dateKey);
+
+    for (const lockedItem of lockedItemsForDay) {
+      slots = subtractBlockFromSlots(slots, new Date(lockedItem.start), new Date(lockedItem.end));
     }
 
     days.push({ dateKey, label, slots });
@@ -386,6 +495,140 @@ function scoreSchedule({ tasks, unscheduledTasks, taskBlocksById, startDate }) {
   score -= Math.max(0, unscheduledTasks.length - 1) * 5;
 
   return score;
+}
+
+function compareSchedules(originalItems, repairedItems, now) {
+  const futureOriginalItems = originalItems.filter((item) => new Date(item.start) >= now);
+  const originalKeyMap = new Map(futureOriginalItems.map((item) => [getItemKey(item), item]));
+  const repairedKeyMap = new Map(repairedItems.map((item) => [getItemKey(item), item]));
+  const kept = [];
+  const moved = [];
+  const added = [];
+  const removed = [];
+
+  for (const repairedItem of repairedItems) {
+    const exactKey = getItemKey(repairedItem);
+
+    if (originalKeyMap.has(exactKey)) {
+      kept.push(repairedItem);
+      continue;
+    }
+
+    const originalMatch = futureOriginalItems.find((item) => item.taskId === repairedItem.taskId);
+
+    if (originalMatch) {
+      moved.push({
+        title: repairedItem.title,
+        from: originalMatch.start,
+        to: repairedItem.start,
+      });
+    } else {
+      added.push(repairedItem);
+    }
+  }
+
+  for (const originalItem of futureOriginalItems) {
+    const exactKey = getItemKey(originalItem);
+
+    if (repairedKeyMap.has(exactKey)) {
+      continue;
+    }
+
+    const repairedMatch = repairedItems.find((item) => item.taskId === originalItem.taskId);
+
+    if (!repairedMatch) {
+      removed.push(originalItem);
+    }
+  }
+
+  return {
+    keptCount: kept.length,
+    movedCount: moved.length,
+    addedCount: added.length,
+    removedCount: removed.length,
+    moved,
+    removed,
+    added,
+  };
+}
+
+function getRepairTaskIds(tasks, originalPlan, now) {
+  const repairTaskIds = new Set();
+  const originalScheduledItems = originalPlan.scheduledItems || [];
+
+  for (const task of tasks) {
+    if (task.status === "done") {
+      continue;
+    }
+
+    if (task.deadline && new Date(task.deadline) < now) {
+      repairTaskIds.add(task.id);
+      continue;
+    }
+
+    if (task.status === "in_progress") {
+      repairTaskIds.add(task.id);
+      continue;
+    }
+
+    const taskItems = originalScheduledItems.filter((item) => item.taskId === task.id);
+
+    if (taskItems.some((item) => new Date(item.end) < now)) {
+      repairTaskIds.add(task.id);
+      continue;
+    }
+  }
+
+  for (const task of originalPlan.unscheduledTasks || []) {
+    repairTaskIds.add(task.id);
+  }
+
+  return repairTaskIds;
+}
+
+function getRemainingMinutesForRepair(task, originalPlan, now) {
+  const taskItems = (originalPlan.scheduledItems || []).filter((item) => item.taskId === task.id);
+  const futureMinutes = taskItems
+    .filter((item) => new Date(item.start) >= now)
+    .reduce((total, item) => total + item.durationMinutes, 0);
+
+  if (task.status === "in_progress" && futureMinutes > 0) {
+    return futureMinutes;
+  }
+
+  return task.duration_minutes;
+}
+
+function getRepairReasonSummary(tasks, originalPlan, now) {
+  let overdueCount = 0;
+  let incompleteCount = 0;
+  let missedBlockCount = 0;
+
+  for (const task of tasks) {
+    if (task.status === "done") {
+      continue;
+    }
+
+    if (task.deadline && new Date(task.deadline) < now) {
+      overdueCount += 1;
+    }
+
+    if (task.status === "in_progress") {
+      incompleteCount += 1;
+    }
+
+    const taskItems = (originalPlan.scheduledItems || []).filter((item) => item.taskId === task.id);
+
+    if (taskItems.some((item) => new Date(item.end) < now)) {
+      missedBlockCount += 1;
+    }
+  }
+
+  return {
+    overdueCount,
+    incompleteCount,
+    missedBlockCount,
+  };
 }
 
 function chooseSplitBlockMinutes(task, remainingMinutes, availableMinutes) {
@@ -525,4 +768,8 @@ function getDaysBetween(start, end) {
 
 function getDaysUntilDeadline(deadline) {
   return getDaysBetween(startOfToday(), new Date(deadline));
+}
+
+function getItemKey(item) {
+  return `${item.taskId}-${item.start}-${item.end}`;
 }
