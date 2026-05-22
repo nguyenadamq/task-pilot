@@ -14,6 +14,11 @@ function SchedulePreview({ plan, title }) {
           tried: {plan.summary.candidateCount}
         </p>
 
+        <div className="schedule-summary-line">
+          <span>{countScheduledBlocks(plan.days)} scheduled blocks</span>
+          <span>{countScheduledMinutes(plan.days)} total minutes planned</span>
+        </div>
+
         {plan.repairInfo ? (
           <p className="helper-text">
             Repair tasks: {plan.repairInfo.repairTaskCount} | Locked future blocks:{" "}
@@ -129,6 +134,18 @@ function formatTime(value) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function countScheduledBlocks(days) {
+  return days.reduce((total, day) => total + day.items.length, 0);
+}
+
+function countScheduledMinutes(days) {
+  return days.reduce(
+    (total, day) =>
+      total + day.items.reduce((dayTotal, item) => dayTotal + item.durationMinutes, 0),
+    0
+  );
 }
 
 export default SchedulePreview;

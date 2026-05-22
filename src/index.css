@@ -142,6 +142,34 @@ a:hover {
   margin-bottom: 24px;
 }
 
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.summary-card {
+  background: #ffffff;
+  border: 1px solid #dbe2ea;
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.summary-card strong {
+  font-size: 28px;
+}
+
+.summary-label {
+  color: #475569;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .dashboard-grid {
   display: grid;
   grid-template-columns: minmax(280px, 360px) 1fr;
@@ -179,6 +207,64 @@ a:hover {
   margin: 0 0 8px;
 }
 
+.task-item-overdue {
+  border-color: #fca5a5;
+  background: #fff7f7;
+}
+
+.task-tags {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  text-transform: capitalize;
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.tag-high {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.tag-medium {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.tag-low {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.tag-todo {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.tag-in_progress {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+.tag-done {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.tag-overdue {
+  background: #fecaca;
+  color: #991b1b;
+}
+
 .task-meta {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -207,6 +293,26 @@ a:hover {
   margin-top: 16px;
 }
 
+.filter-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filter-button {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+  padding: 8px 12px;
+  border-radius: 999px;
+}
+
+.filter-button.active {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
 .list-row {
   display: flex;
   justify-content: space-between;
@@ -226,6 +332,15 @@ a:hover {
 
 .schedule-preview > h3 {
   margin: 0;
+}
+
+.schedule-summary-line {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  color: #475569;
+  font-size: 14px;
+  margin-top: 12px;
 }
 
 .schedule-grid {
@@ -253,7 +368,37 @@ a:hover {
   margin-bottom: 10px;
 }
 
+.notice-card {
+  border: 1px solid #dbe2ea;
+  border-radius: 8px;
+  padding: 14px;
+  background: #ffffff;
+}
+
+.notice-card p {
+  margin: 6px 0 0;
+}
+
+.notice-info {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.notice-warning {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.notice-error {
+  border-color: #fca5a5;
+  background: #fff1f2;
+}
+
 @media (max-width: 820px) {
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .dashboard-grid {
     grid-template-columns: 1fr;
   }

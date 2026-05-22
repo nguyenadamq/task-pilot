@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import AvailabilityForm from "../components/AvailabilityForm";
 import AvailabilityList from "../components/AvailabilityList";
+import DashboardSummary from "../components/DashboardSummary";
 import FixedEventForm from "../components/FixedEventForm";
 import FixedEventList from "../components/FixedEventList";
+import NotificationPanel from "../components/NotificationPanel";
 import SchedulePreview from "../components/SchedulePreview";
 import TaskForm from "../components/TaskForm";
 import TaskList from "../components/TaskList";
@@ -226,6 +228,13 @@ function DashboardPage({ session }) {
 
         {pageError ? <p className="error-text">{pageError}</p> : null}
 
+        <DashboardSummary
+          tasks={tasks}
+          availabilityRules={availabilityRules}
+          fixedEvents={fixedEvents}
+          activePlan={repairedPlan || schedulePlan}
+        />
+
         <div className="dashboard-grid">
           <div className="card">
             <h2>{currentTask ? "Edit Task" : "Add Task"}</h2>
@@ -250,6 +259,8 @@ function DashboardPage({ session }) {
             )}
           </div>
         </div>
+
+        <NotificationPanel tasks={tasks} activePlan={repairedPlan || schedulePlan} />
 
         <div className="two-column-grid">
           <div className="card">
@@ -278,10 +289,11 @@ function DashboardPage({ session }) {
         <div className="section-stack">
           <div className="dashboard-header">
             <div>
-              <h2>Week 7 Schedule Preview</h2>
+              <h2>Week 8 Schedule Preview</h2>
               <p className="helper-text">
                 This keeps the best generated schedule, then tries a basic repair pass when work is
-                overdue, incomplete, or no longer fits well.
+                overdue, incomplete, or no longer fits well. It also highlights urgent work more
+                clearly.
               </p>
             </div>
             <div className="button-row">
