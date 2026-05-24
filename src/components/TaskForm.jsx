@@ -78,10 +78,10 @@ function TaskForm({ currentTask, onSave, onCancel, isSaving }) {
       title: formData.title.trim(),
       description: formData.description.trim(),
       duration_minutes: Number(formData.duration_minutes),
-      deadline: formData.deadline || null,
+      deadline: formData.deadline ? new Date(formData.deadline).toISOString() : null,
       priority: formData.priority,
-      fixed_start: formData.fixed_start || null,
-      fixed_end: formData.fixed_end || null,
+      fixed_start: formData.fixed_start ? new Date(formData.fixed_start).toISOString() : null,
+      fixed_end: formData.fixed_end ? new Date(formData.fixed_end).toISOString() : null,
       status: formData.status,
       splittable: formData.splittable,
     };

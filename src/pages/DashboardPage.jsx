@@ -1,32 +1,32 @@
 import { useEffect, useState } from "react";
-import AvailabilityForm from "../components/AvailabilityForm";
-import AvailabilityList from "../components/AvailabilityList";
 import DashboardSummary from "../components/DashboardSummary";
 import FixedEventForm from "../components/FixedEventForm";
 import FixedEventList from "../components/FixedEventList";
 import NotificationPanel from "../components/NotificationPanel";
 import SchedulePreview from "../components/SchedulePreview";
+import SleepForm from "../components/SleepForm";
+import SleepList from "../components/SleepList";
 import TaskForm from "../components/TaskForm";
 import TaskList from "../components/TaskList";
-import { createAvailabilityRule, deleteAvailabilityRule, getAvailabilityRules } from "../services/availability";
 import { signOut } from "../services/auth";
 import { createFixedEvent, deleteFixedEvent, getFixedEvents } from "../services/fixedEvents";
 import { generateWeeklySchedule, repairWeeklySchedule } from "../services/scheduler";
+import { createSleepRule, deleteSleepRule, getSleepRules } from "../services/sleep";
 import { createTask, deleteTask, getTasks, updateTask } from "../services/tasks";
 
 function DashboardPage({ session }) {
   const [tasks, setTasks] = useState([]);
-  const [availabilityRules, setAvailabilityRules] = useState([]);
+  const [sleepRules, setSleepRules] = useState([]);
   const [fixedEvents, setFixedEvents] = useState([]);
   const [schedulePlan, setSchedulePlan] = useState(null);
   const [repairedPlan, setRepairedPlan] = useState(null);
   const [currentTask, setCurrentTask] = useState(null);
   const [loadingPage, setLoadingPage] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [isSavingAvailability, setIsSavingAvailability] = useState(false);
+  const [isSavingSleep, setIsSavingSleep] = useState(false);
   const [isSavingFixedEvent, setIsSavingFixedEvent] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
-  const [deletingAvailabilityId, setDeletingAvailabilityId] = useState(null);
+  const [deletingSleepId, setDeletingSleepId] = useState("");
   const [deletingFixedEventId, setDeletingFixedEventId] = useState(null);
   const [pageError, setPageError] = useState("");
 
@@ -41,12 +41,12 @@ function DashboardPage({ session }) {
     try {
       const [taskRows, ruleRows, fixedEventRows] = await Promise.all([
         getTasks(),
-        getAvailabilityRules(),
+        getSleepRules(),
         getFixedEvents(),
       ]);
 
       setTasks(taskRows);
-      setAvailabilityRules(ruleRows);
+      setSleepRules(ruleRows);
       setFixedEvents(fixedEventRows);
     } catch (error) {
       setPageError(error.message || "Could not load dashboard data.");
@@ -99,14 +99,16 @@ function DashboardPage({ session }) {
     }
   }
 
-  async function handleAddAvailability(values) {
-    setIsSavingAvailability(true);
+  async function handleAddSleep(values) {
+    setIsSavingSleep(true);
     setPageError("");
 
     try {
-      const newRule = await createAvailabilityRule(values);
-      setAvailabilityRules((prev) =>
-        [...prev, newRule].sort((a, b) => {
+      const newRules = await createSleepRule(values);
+      const updatedDays = newRules.map((rule) => rule.day_of_week);
+
+      setSleepRules((prev) =>
+        [...prev.filter((rule) => !updatedDays.includes(rule.day_of_week)), ...newRules].sort((a, b) => {
           if (a.day_of_week !== b.day_of_week) {
             return a.day_of_week - b.day_of_week;
           }
@@ -117,25 +119,28 @@ function DashboardPage({ session }) {
       setSchedulePlan(null);
       setRepairedPlan(null);
     } catch (error) {
-      setPageError(error.message || "Could not save availability.");
+      setPageError(error.message || "Could not save sleep schedule.");
     } finally {
-      setIsSavingAvailability(false);
+      setIsSavingSleep(false);
     }
   }
 
-  async function handleDeleteAvailability(ruleId) {
-    setDeletingAvailabilityId(ruleId);
+  async function handleDeleteSleep(ruleIds) {
+    const ids = Array.isArray(ruleIds) ? ruleIds : [ruleIds];
+    const deleteKey = ids.length === 5 ? "weekdays" : ids.length === 2 ? "weekends" : ids[0];
+
+    setDeletingSleepId(deleteKey);
     setPageError("");
 
     try {
-      await deleteAvailabilityRule(ruleId);
-      setAvailabilityRules((prev) => prev.filter((rule) => rule.id !== ruleId));
+      await deleteSleepRule(ids);
+      setSleepRules((prev) => prev.filter((rule) => !ids.includes(rule.id)));
       setSchedulePlan(null);
       setRepairedPlan(null);
     } catch (error) {
-      setPageError(error.message || "Could not delete availability.");
+      setPageError(error.message || "Could not delete sleep schedule.");
     } finally {
-      setDeletingAvailabilityId(null);
+      setDeletingSleepId("");
     }
   }
 
@@ -182,7 +187,7 @@ function DashboardPage({ session }) {
   function handleGenerateSchedule() {
     const nextPlan = generateWeeklySchedule({
       tasks,
-      availabilityRules,
+      sleepRules,
       fixedEvents,
     });
 
@@ -198,7 +203,7 @@ function DashboardPage({ session }) {
     const nextRepairedPlan = repairWeeklySchedule({
       originalPlan: schedulePlan,
       tasks,
-      availabilityRules,
+      sleepRules,
       fixedEvents,
     });
 
@@ -230,7 +235,7 @@ function DashboardPage({ session }) {
 
         <DashboardSummary
           tasks={tasks}
-          availabilityRules={availabilityRules}
+          sleepRules={sleepRules}
           fixedEvents={fixedEvents}
           activePlan={repairedPlan || schedulePlan}
         />
@@ -264,19 +269,23 @@ function DashboardPage({ session }) {
 
         <div className="two-column-grid">
           <div className="card">
-            <h2>Weekly Availability</h2>
-            <p className="helper-text">Add the times when you are generally free to work.</p>
-            <AvailabilityForm onSave={handleAddAvailability} isSaving={isSavingAvailability} />
-            <AvailabilityList
-              rules={availabilityRules}
-              onDelete={handleDeleteAvailability}
-              deletingId={deletingAvailabilityId}
+            <h2>Sleep Schedule</h2>
+            <p className="helper-text">
+              Add when you usually sleep. The scheduler will avoid these hours automatically.
+            </p>
+            <SleepForm onSave={handleAddSleep} isSaving={isSavingSleep} />
+            <SleepList
+              rules={sleepRules}
+              onDelete={handleDeleteSleep}
+              deletingId={deletingSleepId}
             />
           </div>
 
           <div className="card">
             <h2>Recurring Fixed Blocks</h2>
-            <p className="helper-text">Use this for class, work, or other repeating commitments.</p>
+            <p className="helper-text">
+              Use this for class, work, gym, or other times when you are busy.
+            </p>
             <FixedEventForm onSave={handleAddFixedEvent} isSaving={isSavingFixedEvent} />
             <FixedEventList
               events={fixedEvents}
@@ -291,9 +300,8 @@ function DashboardPage({ session }) {
             <div>
               <h2>Week 8 Schedule Preview</h2>
               <p className="helper-text">
-                This keeps the best generated schedule, then tries a basic repair pass when work is
-                overdue, incomplete, or no longer fits well. It also highlights urgent work more
-                clearly.
+                This starts from your full day, blocks sleep and recurring busy time, and then
+                tries to place work in what is left.
               </p>
             </div>
             <div className="button-row">

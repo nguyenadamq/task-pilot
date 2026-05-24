@@ -1,4 +1,4 @@
-function DashboardSummary({ tasks, availabilityRules, fixedEvents, activePlan }) {
+function DashboardSummary({ tasks, sleepRules, fixedEvents, activePlan }) {
   const totalTasks = tasks.length;
   const openTasks = tasks.filter((task) => task.status !== "done").length;
   const overdueTasks = tasks.filter((task) => isOverdue(task)).length;
@@ -20,9 +20,9 @@ function DashboardSummary({ tasks, availabilityRules, fixedEvents, activePlan })
       </div>
 
       <div className="summary-card">
-        <span className="summary-label">Weekly Setup</span>
-        <strong>{availabilityRules.length}</strong>
-        <span className="helper-text">{fixedEvents.length} fixed blocks</span>
+        <span className="summary-label">Sleep Setup</span>
+        <strong>{sleepRules.length}</strong>
+        <span className="helper-text">{fixedEvents.length} recurring busy blocks</span>
       </div>
 
       <div className="summary-card">

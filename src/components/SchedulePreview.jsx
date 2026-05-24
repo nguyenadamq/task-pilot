@@ -1,6 +1,10 @@
 function SchedulePreview({ plan, title }) {
   if (!plan) {
-    return <div className="empty-state">Add availability, then generate a schedule for the next 7 days.</div>;
+    return (
+      <div className="empty-state">
+        Add your sleep schedule and recurring blocks, then generate a schedule for the next 7 days.
+      </div>
+    );
   }
 
   return (

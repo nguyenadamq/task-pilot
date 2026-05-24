@@ -84,10 +84,10 @@ const STRATEGIES = [
   },
 ];
 
-export function generateWeeklySchedule({ tasks, availabilityRules, fixedEvents }) {
+export function generateWeeklySchedule({ tasks, sleepRules, fixedEvents }) {
   return buildBestSchedule({
     tasks,
-    availabilityRules,
+    sleepRules,
     fixedEvents,
     lockedItems: [],
     startDate: startOfToday(),
@@ -95,9 +95,9 @@ export function generateWeeklySchedule({ tasks, availabilityRules, fixedEvents }
   });
 }
 
-export function repairWeeklySchedule({ originalPlan, tasks, availabilityRules, fixedEvents }) {
+export function repairWeeklySchedule({ originalPlan, tasks, sleepRules, fixedEvents }) {
   if (!originalPlan) {
-    return generateWeeklySchedule({ tasks, availabilityRules, fixedEvents });
+    return generateWeeklySchedule({ tasks, sleepRules, fixedEvents });
   }
 
   const now = new Date();
@@ -133,7 +133,7 @@ export function repairWeeklySchedule({ originalPlan, tasks, availabilityRules, f
 
   const repairedPlan = buildBestSchedule({
     tasks: repairTasks,
-    availabilityRules,
+    sleepRules,
     fixedEvents,
     lockedItems,
     startDate: startOfToday(),
@@ -154,13 +154,13 @@ export function repairWeeklySchedule({ originalPlan, tasks, availabilityRules, f
   };
 }
 
-function buildBestSchedule({ tasks, availabilityRules, fixedEvents, lockedItems, startDate, mode }) {
+function buildBestSchedule({ tasks, sleepRules, fixedEvents, lockedItems, startDate, mode }) {
   const candidates = STRATEGIES.map((strategy) =>
     buildCandidateSchedule({
       strategy,
       startDate,
       tasks,
-      availabilityRules,
+      sleepRules,
       fixedEvents,
       lockedItems,
     })
@@ -194,11 +194,11 @@ function buildCandidateSchedule({
   strategy,
   startDate,
   tasks,
-  availabilityRules,
+  sleepRules,
   fixedEvents,
   lockedItems,
 }) {
-  const days = buildDays(startDate, 7, availabilityRules, fixedEvents, tasks, lockedItems);
+  const days = buildDays(startDate, 7, sleepRules, fixedEvents, tasks, lockedItems);
   const flexibleTasks = strategy.sortTasks(getFlexibleTasks(tasks));
   const scheduledItems = [];
   const unscheduledTasks = [];
@@ -360,7 +360,7 @@ function placeSplittableTask({
   return remainingMinutes;
 }
 
-function buildDays(startDate, numberOfDays, availabilityRules, fixedEvents, tasks, lockedItems = []) {
+function buildDays(startDate, numberOfDays, sleepRules, fixedEvents, tasks, lockedItems = []) {
   const days = [];
 
   for (let index = 0; index < numberOfDays; index += 1) {
@@ -369,12 +369,19 @@ function buildDays(startDate, numberOfDays, availabilityRules, fixedEvents, task
 
     const dateKey = toDateKey(date);
     const label = `${DAY_LABELS[date.getDay()]} ${date.toLocaleDateString()}`;
-    const availabilityForDay = availabilityRules.filter((rule) => rule.day_of_week === date.getDay());
     const fixedEventsForDay = fixedEvents.filter((event) => event.day_of_week === date.getDay());
-    let slots = availabilityForDay.map((rule) => ({
-      start: combineDateAndTime(date, rule.start_time),
-      end: combineDateAndTime(date, rule.end_time),
-    }));
+    let slots = [
+      {
+        start: startOfDate(date),
+        end: endOfDate(date),
+      },
+    ];
+
+    const sleepBlocksForDay = getSleepBlocksForDate(date, sleepRules);
+
+    for (const sleepBlock of sleepBlocksForDay) {
+      slots = subtractBlockFromSlots(slots, sleepBlock.start, sleepBlock.end);
+    }
 
     for (const fixedEvent of fixedEventsForDay) {
       const blockStart = combineDateAndTime(date, fixedEvent.start_time);
@@ -408,6 +415,37 @@ function buildDays(startDate, numberOfDays, availabilityRules, fixedEvents, task
   }
 
   return days;
+}
+
+function getSleepBlocksForDate(date, sleepRules) {
+  const blocks = [];
+  const currentDay = date.getDay();
+  const previousDay = (currentDay + 6) % 7;
+
+  for (const rule of sleepRules) {
+    if (rule.day_of_week === currentDay) {
+      if (rule.start_time < rule.end_time) {
+        blocks.push({
+          start: combineDateAndTime(date, rule.start_time),
+          end: combineDateAndTime(date, rule.end_time),
+        });
+      } else {
+        blocks.push({
+          start: combineDateAndTime(date, rule.start_time),
+          end: endOfDate(date),
+        });
+      }
+    }
+
+    if (rule.day_of_week === previousDay && rule.start_time > rule.end_time) {
+      blocks.push({
+        start: startOfDate(date),
+        end: combineDateAndTime(date, rule.end_time),
+      });
+    }
+  }
+
+  return blocks;
 }
 
 function getFlexibleTasks(tasks) {
@@ -712,6 +750,19 @@ function combineDateAndTime(date, timeValue) {
   const [hours, minutes] = String(timeValue).split(":");
   const result = new Date(date);
   result.setHours(Number(hours), Number(minutes), 0, 0);
+  return result;
+}
+
+function startOfDate(date) {
+  const result = new Date(date);
+  result.setHours(0, 0, 0, 0);
+  return result;
+}
+
+function endOfDate(date) {
+  const result = new Date(date);
+  result.setDate(result.getDate() + 1);
+  result.setHours(0, 0, 0, 0);
   return result;
 }
 
