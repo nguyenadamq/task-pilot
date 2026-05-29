@@ -15,6 +15,7 @@ const emptyForm = {
 function TaskForm({ currentTask, onSave, onCancel, isSaving }) {
   const [formData, setFormData] = useState(emptyForm);
   const [errorMessage, setErrorMessage] = useState("");
+  const [suggestionMessage, setSuggestionMessage] = useState("");
 
   useEffect(() => {
     if (currentTask) {
@@ -30,11 +31,13 @@ function TaskForm({ currentTask, onSave, onCancel, isSaving }) {
         splittable: currentTask.splittable || false,
       });
       setErrorMessage("");
+      setSuggestionMessage("");
       return;
     }
 
     setFormData(emptyForm);
     setErrorMessage("");
+    setSuggestionMessage("");
   }, [currentTask]);
 
   function handleChange(event) {
@@ -93,6 +96,16 @@ function TaskForm({ currentTask, onSave, onCancel, isSaving }) {
     }
   }
 
+  function handleSuggestDuration() {
+    const suggestedMinutes = getSuggestedDuration(formData.title, formData.description);
+
+    setFormData((prev) => ({
+      ...prev,
+      duration_minutes: suggestedMinutes,
+    }));
+    setSuggestionMessage(`Suggested ${suggestedMinutes} minutes based on the task text.`);
+  }
+
   return (
     <form onSubmit={handleSubmit}>
       <div className="form-row">
@@ -127,6 +140,10 @@ function TaskForm({ currentTask, onSave, onCancel, isSaving }) {
           onChange={handleChange}
           required
         />
+        <button className="button-secondary compact-button" type="button" onClick={handleSuggestDuration}>
+          Suggest duration
+        </button>
+        {suggestionMessage ? <p className="helper-text">{suggestionMessage}</p> : null}
       </div>
 
       <div className="form-row">
@@ -227,6 +244,32 @@ function formatDateTimeValue(value) {
   const offset = date.getTimezoneOffset();
   const localDate = new Date(date.getTime() - offset * 60000);
   return localDate.toISOString().slice(0, 16);
+}
+
+function getSuggestedDuration(title, description) {
+  const text = `${title} ${description}`.toLowerCase();
+
+  if (/\b(project|research|paper|essay|presentation|report)\b/.test(text)) {
+    return 180;
+  }
+
+  if (/\b(exam|midterm|final|study|review)\b/.test(text)) {
+    return 120;
+  }
+
+  if (/\b(homework|assignment|problem set|worksheet)\b/.test(text)) {
+    return 90;
+  }
+
+  if (/\b(read|reading|chapter|notes)\b/.test(text)) {
+    return 60;
+  }
+
+  if (/\b(email|discussion|reply|quiz)\b/.test(text)) {
+    return 30;
+  }
+
+  return 60;
 }
 
 export default TaskForm;

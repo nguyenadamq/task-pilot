@@ -113,7 +113,10 @@ function SchedulePreview({ plan, title }) {
             {plan.unscheduledTasks.map((task) => (
               <div className="list-row" key={task.id}>
                 <span>{task.title}</span>
-                <span className="helper-text">{task.remainingMinutes} minutes left</span>
+                <span className="helper-text">
+                  {task.remainingMinutes} minutes left
+                  {task.reason ? ` | ${task.reason}` : ""}
+                </span>
               </div>
             ))}
           </div>

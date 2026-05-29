@@ -84,23 +84,29 @@ const STRATEGIES = [
   },
 ];
 
-export function generateWeeklySchedule({ tasks, sleepRules, fixedEvents }) {
+export function generateWeeklySchedule({ tasks, sleepRules, fixedEvents, startDate = startOfToday() }) {
   return buildBestSchedule({
     tasks,
     sleepRules,
     fixedEvents,
     lockedItems: [],
-    startDate: startOfToday(),
+    startDate: startOfDate(new Date(startDate)),
     mode: "original",
   });
 }
 
-export function repairWeeklySchedule({ originalPlan, tasks, sleepRules, fixedEvents }) {
+export function repairWeeklySchedule({
+  originalPlan,
+  tasks,
+  sleepRules,
+  fixedEvents,
+  startDate = startOfToday(),
+  now = new Date(),
+}) {
   if (!originalPlan) {
-    return generateWeeklySchedule({ tasks, sleepRules, fixedEvents });
+    return generateWeeklySchedule({ tasks, sleepRules, fixedEvents, startDate });
   }
 
-  const now = new Date();
   const tasksById = Object.fromEntries(tasks.map((task) => [task.id, task]));
   const originalScheduledItems = originalPlan.scheduledItems || [];
   const repairTaskIds = getRepairTaskIds(tasks, originalPlan, now);
@@ -136,7 +142,7 @@ export function repairWeeklySchedule({ originalPlan, tasks, sleepRules, fixedEve
     sleepRules,
     fixedEvents,
     lockedItems,
-    startDate: startOfToday(),
+    startDate: startOfDate(new Date(startDate)),
     mode: "repair",
   });
 
@@ -248,12 +254,15 @@ function buildCandidateSchedule({
     }
 
     if (remainingMinutes > 0) {
+      const scheduledMinutes = task.duration_minutes - remainingMinutes;
+
       unscheduledTasks.push({
         id: task.id,
         title: task.title,
         remainingMinutes,
         priority: task.priority,
         duration_minutes: task.duration_minutes,
+        reason: getUnscheduledReason(task, days, remainingMinutes, scheduledMinutes),
       });
     }
 
@@ -319,41 +328,44 @@ function placeSplittableTask({
         break;
       }
 
-      if (!canUseSlotForTask(slot, task.deadline)) {
-        continue;
+      while (remainingMinutes > 0 && canUseSlotForTask(slot, task.deadline)) {
+        const availableBeforeDeadline = getAvailableMinutesBeforeDeadline(slot, task.deadline);
+        const availableMinutes = Math.min(
+          getMinutesBetween(slot.start, slot.end),
+          availableBeforeDeadline,
+          getRemainingDailyCapacity(minutesByDay, day.dateKey)
+        );
+
+        if (availableMinutes < MIN_SPLIT_MINUTES) {
+          break;
+        }
+
+        const blockMinutes = chooseSplitBlockMinutes(task, remainingMinutes, availableMinutes);
+
+        if (blockMinutes <= 0) {
+          break;
+        }
+
+        const end = addMinutes(slot.start, blockMinutes);
+
+        scheduledItems.push({
+          taskId: task.id,
+          title: task.title,
+          start: slot.start.toISOString(),
+          end: end.toISOString(),
+          durationMinutes: blockMinutes,
+        });
+
+        placedBlocks.push({
+          start: new Date(slot.start),
+          end,
+          durationMinutes: blockMinutes,
+        });
+
+        slot.start = end;
+        minutesByDay[day.dateKey] = (minutesByDay[day.dateKey] || 0) + blockMinutes;
+        remainingMinutes -= blockMinutes;
       }
-
-      const availableBeforeDeadline = getAvailableMinutesBeforeDeadline(slot, task.deadline);
-      const availableMinutes = Math.min(
-        getMinutesBetween(slot.start, slot.end),
-        availableBeforeDeadline,
-        getRemainingDailyCapacity(minutesByDay, day.dateKey)
-      );
-
-      if (availableMinutes < MIN_SPLIT_MINUTES) {
-        continue;
-      }
-
-      const blockMinutes = chooseSplitBlockMinutes(task, remainingMinutes, availableMinutes);
-      const end = addMinutes(slot.start, blockMinutes);
-
-      scheduledItems.push({
-        taskId: task.id,
-        title: task.title,
-        start: slot.start.toISOString(),
-        end: end.toISOString(),
-        durationMinutes: blockMinutes,
-      });
-
-      placedBlocks.push({
-        start: new Date(slot.start),
-        end,
-        durationMinutes: blockMinutes,
-      });
-
-      slot.start = end;
-      minutesByDay[day.dateKey] = (minutesByDay[day.dateKey] || 0) + blockMinutes;
-      remainingMinutes -= blockMinutes;
     }
   }
 
@@ -743,7 +755,53 @@ function getAvailableMinutesBeforeDeadline(slot, deadline) {
 }
 
 function getRemainingDailyCapacity(minutesByDay, dateKey) {
-  return MAX_WORK_MINUTES_PER_DAY - (minutesByDay[dateKey] || 0);
+  return Math.max(0, MAX_WORK_MINUTES_PER_DAY - (minutesByDay[dateKey] || 0));
+}
+
+function getUnscheduledReason(task, days, remainingMinutes, scheduledMinutes) {
+  const deadline = task.deadline ? new Date(task.deadline) : null;
+  const firstDayStart = days[0] ? startOfDate(new Date(days[0].dateKey)) : startOfToday();
+
+  if (deadline && deadline <= firstDayStart) {
+    return "Deadline has already passed.";
+  }
+
+  const availableSlots = days
+    .flatMap((day) =>
+      day.slots.map((slot) => ({
+        ...slot,
+        dateKey: day.dateKey,
+      }))
+    )
+    .filter((slot) => canUseSlotForTask(slot, task.deadline));
+
+  const availableMinutes = availableSlots.reduce(
+    (total, slot) => total + getAvailableMinutesBeforeDeadline(slot, task.deadline),
+    0
+  );
+
+  if (availableMinutes <= 0) {
+    return deadline
+      ? "No available time before the deadline."
+      : "No available time remains this week.";
+  }
+
+  if (!task.splittable) {
+    const hasLargeEnoughSlot = availableSlots.some((slot) => {
+      const slotMinutes = getAvailableMinutesBeforeDeadline(slot, task.deadline);
+      return slotMinutes >= remainingMinutes;
+    });
+
+    if (!hasLargeEnoughSlot) {
+      return "No single free block is long enough.";
+    }
+  }
+
+  if (scheduledMinutes > 0) {
+    return `${scheduledMinutes} minutes fit, but ${remainingMinutes} minutes still need time.`;
+  }
+
+  return deadline ? "Not enough free time before the deadline." : "Not enough free time this week.";
 }
 
 function combineDateAndTime(date, timeValue) {

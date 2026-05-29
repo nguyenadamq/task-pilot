@@ -114,6 +114,11 @@ a:hover {
   border-radius: 6px;
 }
 
+.compact-button {
+  align-self: flex-start;
+  padding: 8px 12px;
+}
+
 .error-text {
   color: #b91c1c;
   margin: 0 0 12px;
