@@ -11,7 +11,7 @@ function SchedulePreview({ plan, title }) {
     <div className="schedule-preview">
       {title ? <h3>{title}</h3> : null}
 
-      <div className="card">
+      <div className="card panel-card">
         <h3>Schedule Summary</h3>
         <p className="helper-text">
           Chosen strategy: {plan.summary.strategyLabel} | Score: {plan.summary.score} | Candidates
@@ -45,7 +45,7 @@ function SchedulePreview({ plan, title }) {
       </div>
 
       {plan.comparison ? (
-        <div className="card">
+        <div className="card panel-card">
           <h3>Repair Changes</h3>
           <p className="helper-text">
             Kept: {plan.comparison.keptCount} | Moved: {plan.comparison.movedCount} | Added:{" "}
@@ -106,7 +106,7 @@ function SchedulePreview({ plan, title }) {
         ))}
       </div>
 
-      <div className="card">
+      <div className="card panel-card">
         <h3>Unscheduled Tasks</h3>
         {plan.unscheduledTasks.length ? (
           <div className="simple-list">

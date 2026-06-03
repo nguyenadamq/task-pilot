@@ -2,8 +2,7 @@ function NotificationPanel({ tasks, activePlan }) {
   const notices = buildNotices(tasks, activePlan);
 
   return (
-    <div className="card">
-      <h2>Notifications</h2>
+    <div className="card panel-card">
       {notices.length ? (
         <div className="simple-list">
           {notices.map((notice, index) => (

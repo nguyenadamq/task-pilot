@@ -149,6 +149,10 @@ function DashboardPage({ session }) {
     setPageError("");
 
     try {
+      if (hasFixedEventOverlap(values, fixedEvents)) {
+        throw new Error("That fixed block overlaps with another recurring block on the same day.");
+      }
+
       const newEvent = await createFixedEvent(values);
       setFixedEvents((prev) =>
         [...prev, newEvent].sort((a, b) => {
@@ -240,65 +244,94 @@ function DashboardPage({ session }) {
           activePlan={repairedPlan || schedulePlan}
         />
 
-        <div className="dashboard-grid">
-          <div className="card">
-            <h2>{currentTask ? "Edit Task" : "Add Task"}</h2>
-            <TaskForm
-              currentTask={currentTask}
-              onSave={handleSave}
-              onCancel={() => setCurrentTask(null)}
-              isSaving={isSaving}
-            />
-          </div>
-
-          <div>
-            {loadingPage ? (
-              <div className="empty-state">Loading dashboard...</div>
-            ) : (
-              <TaskList
-                tasks={tasks}
-                onEdit={setCurrentTask}
-                onDelete={handleDelete}
-                isDeletingId={deletingId}
-              />
-            )}
-          </div>
-        </div>
-
-        <NotificationPanel tasks={tasks} activePlan={repairedPlan || schedulePlan} />
-
-        <div className="two-column-grid">
-          <div className="card">
-            <h2>Sleep Schedule</h2>
-            <p className="helper-text">
-              Add when you usually sleep. The scheduler will avoid these hours automatically.
-            </p>
-            <SleepForm onSave={handleAddSleep} isSaving={isSavingSleep} />
-            <SleepList
-              rules={sleepRules}
-              onDelete={handleDeleteSleep}
-              deletingId={deletingSleepId}
-            />
-          </div>
-
-          <div className="card">
-            <h2>Recurring Fixed Blocks</h2>
-            <p className="helper-text">
-              Use this for class, work, gym, or other times when you are busy.
-            </p>
-            <FixedEventForm onSave={handleAddFixedEvent} isSaving={isSavingFixedEvent} />
-            <FixedEventList
-              events={fixedEvents}
-              onDelete={handleDeleteFixedEvent}
-              deletingId={deletingFixedEventId}
-            />
-          </div>
-        </div>
-
-        <div className="section-stack">
-          <div className="dashboard-header">
+        <section className="dashboard-section">
+          <div className="section-header">
             <div>
-              <h2>Week 8 Schedule Preview</h2>
+              <h2>Tasks</h2>
+              <p className="helper-text">Create work items, mark progress, and keep deadlines visible.</p>
+            </div>
+          </div>
+
+          <div className="dashboard-grid">
+            <div className="card">
+              <h3>{currentTask ? "Edit Task" : "Add Task"}</h3>
+              <TaskForm
+                currentTask={currentTask}
+                onSave={handleSave}
+                onCancel={() => setCurrentTask(null)}
+                isSaving={isSaving}
+              />
+            </div>
+
+            <div>
+              {loadingPage ? (
+                <div className="empty-state">Loading dashboard...</div>
+              ) : (
+                <TaskList
+                  tasks={tasks}
+                  onEdit={setCurrentTask}
+                  onDelete={handleDelete}
+                  isDeletingId={deletingId}
+                />
+              )}
+            </div>
+          </div>
+        </section>
+
+        <section className="dashboard-section">
+          <div className="section-header">
+            <div>
+              <h2>Notifications</h2>
+              <p className="helper-text">Check deadline warnings and schedule issues before planning.</p>
+            </div>
+          </div>
+
+          <NotificationPanel tasks={tasks} activePlan={repairedPlan || schedulePlan} />
+        </section>
+
+        <section className="dashboard-section">
+          <div className="section-header">
+            <div>
+              <h2>Availability</h2>
+              <p className="helper-text">
+                Add sleep and recurring busy blocks so the schedule uses realistic free time.
+              </p>
+            </div>
+          </div>
+
+          <div className="two-column-grid">
+            <div className="card">
+              <h3>Sleep Schedule</h3>
+              <p className="helper-text">
+                Add when you usually sleep. The scheduler will avoid these hours automatically.
+              </p>
+              <SleepForm onSave={handleAddSleep} isSaving={isSavingSleep} />
+              <SleepList
+                rules={sleepRules}
+                onDelete={handleDeleteSleep}
+                deletingId={deletingSleepId}
+              />
+            </div>
+
+            <div className="card">
+              <h3>Recurring Fixed Blocks</h3>
+              <p className="helper-text">
+                Use this for class, work, gym, or other times when you are busy.
+              </p>
+              <FixedEventForm onSave={handleAddFixedEvent} isSaving={isSavingFixedEvent} />
+              <FixedEventList
+                events={fixedEvents}
+                onDelete={handleDeleteFixedEvent}
+                deletingId={deletingFixedEventId}
+              />
+            </div>
+          </div>
+        </section>
+
+        <section className="dashboard-section section-stack">
+          <div className="section-header schedule-actions">
+            <div>
+              <h2>Schedule Preview</h2>
               <p className="helper-text">
                 This starts from your full day, blocks sleep and recurring busy time, and then
                 tries to place work in what is left.
@@ -322,10 +355,20 @@ function DashboardPage({ session }) {
           {schedulePlan ? <SchedulePreview plan={schedulePlan} title="Original Schedule" /> : null}
           {repairedPlan ? <SchedulePreview plan={repairedPlan} title="Repaired Schedule" /> : null}
           {!schedulePlan ? <SchedulePreview plan={schedulePlan} /> : null}
-        </div>
+        </section>
       </div>
     </div>
   );
+}
+
+function hasFixedEventOverlap(nextEvent, events) {
+  return events.some((event) => {
+    if (event.day_of_week !== nextEvent.day_of_week) {
+      return false;
+    }
+
+    return nextEvent.start_time < event.end_time && nextEvent.end_time > event.start_time;
+  });
 }
 
 export default DashboardPage;

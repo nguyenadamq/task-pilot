@@ -58,8 +58,13 @@ a:hover {
 
 .card h1,
 .card h2,
+.card h3,
 .dashboard-header h1 {
   margin-top: 0;
+}
+
+.panel-card {
+  max-width: none;
 }
 
 .form-row {
@@ -145,6 +150,30 @@ a:hover {
   align-items: flex-start;
   gap: 16px;
   margin-bottom: 24px;
+}
+
+.dashboard-section {
+  margin-bottom: 28px;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.section-header h2 {
+  margin: 0 0 4px;
+}
+
+.section-header .helper-text {
+  margin: 0;
+}
+
+.schedule-actions {
+  margin-bottom: 0;
 }
 
 .summary-grid {
@@ -412,7 +441,8 @@ a:hover {
     grid-template-columns: 1fr;
   }
 
-  .dashboard-header {
+  .dashboard-header,
+  .section-header {
     flex-direction: column;
   }
 
